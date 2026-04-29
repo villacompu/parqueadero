@@ -11,8 +11,3 @@ streamlit run app.py
 ## Base de datos
 - Por defecto usa `parking.db` en la carpeta del proyecto.
 - Evidencias/fotos se guardan en `uploads/`.
-
-## Usuarios por defecto (solo si la BD está vacía)
-- admin / admin123
-- portero1 / portero123
-- auditor1 / auditor123
