@@ -10,7 +10,6 @@ import streamlit as st
 from auth.auth_service import require_role, current_user
 from db.core import db_connect, now_tz, UPLOAD_DIR, ensure_dirs
 from services.config import get_config
-from services.resident_portal import expire_pending_requests, approve_request, reject_request
 from services.audit import audit
 from services.parking import (
     normalize_plate,
@@ -455,7 +454,7 @@ def page_gate_in():
         u = current_user()
         assert u is not None
 
-        cur = con.execute(
+        con.execute(
             """
             INSERT INTO tickets(plate,vehicle_type,ticket_type,apt_id,zone_id,private_cell_id,entry_time,entry_by,exit_mode,notes)
             VALUES (?,?,?,?,?,?,?,?,?,?)
@@ -473,17 +472,6 @@ def page_gate_in():
                 notes.strip() if notes else None,
             ),
         )
-        ticket_id = int(cur.lastrowid)
-
-        # Si viene de una solicitud del portal, la marcamos como APROBADA
-        req_id = st.session_state.pop("_portal_entry_req_id", None)
-        if req_id:
-            try:
-                approve_request(con, int(req_id), int(u.id), ticket_id=ticket_id, notes="Ingreso aprobado por portería")
-                audit("RESIDENT_ENTRY_APPROVE", u.id, {"plate": plate, "request_id": int(req_id), "ticket_id": ticket_id})
-            except Exception:
-                pass
-
         con.commit()
 
         audit("GATE_IN", u.id, {"plate": plate, "type": vehicle_type, "ticket_type": ticket_type, "assignment": assignment_label})
@@ -543,71 +531,6 @@ def page_gate_control():
 
 
     st.subheader("🧩 Portería · Control (Dentro + Salida)")
-
-    # -------------------------
-    # Portal residentes: solicitudes de salida (opcional)
-    # -------------------------
-    if bool(get_config(con, "resident_portal_enabled", False)) and bool(get_config(con, "resident_portal_allow_exit", True)):
-        expire_pending_requests(con)
-        con.commit()
-        with st.expander("🟦 Solicitudes de salida (residentes)", expanded=True):
-            st.caption("Aprueba y registra la salida con un clic (si el vehículo está dentro).")
-            now_iso = now_tz().isoformat()
-            reqs = con.execute(
-                """
-                SELECT r.id, r.plate, r.requested_at, r.expires_at,
-                       t.id as ticket_id, t.entry_time,
-                       tw.tower_num, ap.apt_number
-                FROM resident_portal_requests r
-                LEFT JOIN tickets t ON t.plate=r.plate AND t.exit_time IS NULL
-                LEFT JOIN resident_vehicles rv ON rv.plate=r.plate AND rv.is_active=1
-                LEFT JOIN apartments ap ON ap.id=rv.apt_id
-                LEFT JOIN towers tw ON tw.id=ap.tower_id
-                WHERE r.status='PENDING' AND r.request_type='EXIT' AND r.expires_at >= ?
-                ORDER BY r.requested_at DESC
-                LIMIT 30
-                """,
-                (now_iso,),
-            ).fetchall()
-
-            if not reqs:
-                st.caption("Sin solicitudes de salida pendientes.")
-            else:
-                for rr in reqs:
-                    plate2 = rr["plate"]
-                    apt_txt = f"T{int(rr['tower_num'])}-{rr['apt_number']}" if rr["tower_num"] is not None else "(sin apto)"
-                    entry_txt = str(rr["entry_time"])[:16] if rr["entry_time"] else "-"
-                    left, right = st.columns([4, 1])
-                    with left:
-                        st.write(f"**{plate2}** · {apt_txt} · dentro desde {entry_txt} · vence {str(rr['expires_at'])[:16]}")
-                    with right:
-                        if st.button("Aceptar", key=f"gctrl_exit_accept_{int(rr['id'])}"):
-                            tk = con.execute(
-                                "SELECT id FROM tickets WHERE plate=? AND exit_time IS NULL ORDER BY entry_time DESC LIMIT 1",
-                                (plate2,),
-                            ).fetchone()
-
-                            if not tk:
-                                reject_request(con, int(rr["id"]), int(u.id), notes="No hay ticket abierto para esta placa")
-                                con.commit()
-                                st.warning("No hay ticket abierto para esa placa.")
-                                st.rerun()
-
-                        con.execute(
-                            """
-                            UPDATE tickets
-                            SET exit_time=?, exited_by=?, exit_mode=?
-                            WHERE id=?
-                            """,
-                            (now_tz().isoformat(), int(u.id), "RESIDENT_REQUEST", int(tk["id"])),
-                        )
-                        approve_request(con, int(rr["id"]), int(u.id), ticket_id=int(tk["id"]), notes="Salida aprobada por portería")
-                        audit("GATE_OUT", u.id, {"plate": plate2, "ticket_id": int(tk["id"]), "exit_mode": "RESIDENT_REQUEST"})
-                        audit("RESIDENT_EXIT_APPROVE", u.id, {"plate": plate2, "request_id": int(rr["id"]), "ticket_id": int(tk["id"])})
-                        con.commit()
-                        st.success("Salida registrada ✅")
-                        st.rerun()
-
     st.caption("Busca por placa y gestiona salidas sin cambiar de pantalla.")
 
     # Buscar placa

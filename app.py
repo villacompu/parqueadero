@@ -6,11 +6,9 @@ from auth.auth_service import current_user, login, logout
 from auth import auth_service
 from db.core import init_db, db_connect
 from services.audit import count_open_incidents
-from services.config import get_config
 from views.components import inject_css
 
 from views.pages_public import page_public
-from views.pages_resident_portal import page_resident_portal
 from views.pages_gate import page_gate_in, page_gate_control, page_end_day
 from views.pages_auditor import page_sanctions, page_incidents, page_guard_audit
 from views.pages_admin import admin_structure, admin_users, admin_config
@@ -105,13 +103,6 @@ def build_nav():
     u = current_user()
     items = [("Dashboard público", "PUBLIC")]
 
-    # Portal residentes (configurable)
-    con = db_connect()
-    portal_enabled = bool(get_config(con, "resident_portal_enabled", False))
-    con.close()
-    if portal_enabled:
-        items.append(("Portal residentes", "PORTAL"))
-
     if not u:
         items.append(("Iniciar sesión", "LOGIN"))
         return items
@@ -152,8 +143,6 @@ def route(key: str) -> None:
     try:
         if key == "PUBLIC":
             page_public()
-        elif key == "PORTAL":
-            page_resident_portal()
         elif key == "LOGIN":
             page_login()
         elif key == "GIN":

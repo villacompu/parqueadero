@@ -281,47 +281,6 @@ def init_db(make_password_fn):
     db_exec(con, "CREATE INDEX IF NOT EXISTS idx_incidents_status_created ON incidents(status, created_at);")
     db_exec(con, "CREATE INDEX IF NOT EXISTS idx_incidents_ticket ON incidents(ticket_id, status);")
 
-
-    # ------------------------------------------------------------------
-    # Portal residentes (solicitudes entrada/salida + cuentas por vehículo)
-    # ------------------------------------------------------------------
-    db_exec(
-        con,
-        """
-        CREATE TABLE IF NOT EXISTS resident_vehicle_accounts(
-            plate TEXT PRIMARY KEY,
-            password_hash TEXT NOT NULL,
-            salt_hex TEXT NOT NULL,
-            is_active INTEGER DEFAULT 1,
-            created_at TEXT,
-            updated_at TEXT
-        )
-        """,
-    )
-
-    db_exec(
-        con,
-        """
-        CREATE TABLE IF NOT EXISTS resident_portal_requests(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            plate TEXT NOT NULL,
-            request_type TEXT NOT NULL,          -- ENTRY | EXIT
-            requested_at TEXT NOT NULL,
-            expires_at TEXT NOT NULL,
-            status TEXT NOT NULL,                -- PENDING | APPROVED | REJECTED | EXPIRED
-            approved_by INTEGER,
-            approved_at TEXT,
-            ticket_id INTEGER,
-            notes TEXT
-        )
-        """,
-    )
-
-    # índices para consultas rápidas
-    db_exec(con, "CREATE INDEX IF NOT EXISTS idx_rpr_status_exp ON resident_portal_requests(status, expires_at)")
-    db_exec(con, "CREATE INDEX IF NOT EXISTS idx_rpr_plate ON resident_portal_requests(plate)")
-    db_exec(con, "CREATE INDEX IF NOT EXISTS idx_rpr_type ON resident_portal_requests(request_type)")
-
     # defaults
     def set_cfg_if_missing(key: str, val_json: str):
         r = db_query(con, "SELECT key FROM config WHERE key=?", (key,))
@@ -332,12 +291,6 @@ def init_db(make_password_fn):
     set_cfg_if_missing("public_dashboard_title", json.dumps("Cupos de parqueadero - Primitiva Parque Natural", ensure_ascii=False))
     set_cfg_if_missing("end_day_notice_hour", json.dumps(21))
     set_cfg_if_missing("end_day_notice_minute", json.dumps(30))
-    # Portal residentes
-    set_cfg_if_missing("resident_portal_enabled", json.dumps(False))
-    set_cfg_if_missing("resident_portal_allow_entry", json.dumps(True))
-    set_cfg_if_missing("resident_portal_allow_exit", json.dumps(True))
-    set_cfg_if_missing("resident_portal_window_minutes", json.dumps(5))
-
 
     # Umbrales cierre del día (minutos)
     set_cfg_if_missing("end_day_threshold_warn_min", json.dumps(60))
